@@ -43,7 +43,7 @@ _dropbox_access_token_cache = DROPBOX_ACCESS_TOKEN
 
 app = FastAPI(
     title="ultimateENEM Visual Proxy",
-    version="1.1.1",
+    version="1.1.2",
     description="Proxy para localizar PDFs no Dropbox, renderizar paginas, recortar recursos visuais e salvar PNG/WebP.",
 )
 
@@ -219,6 +219,12 @@ class DropboxSearchResponse(BaseModel):
     matches: list[DropboxSearchMatch]
 
 
+class DropboxRefreshTestResponse(BaseModel):
+    ok: bool
+    message: str
+    dropbox_refresh_configured: bool
+
+
 class RenderPageRequest(BaseModel):
     pdf_path: str = Field(..., description="Caminho completo do PDF no Dropbox.")
     page_number: int = Field(..., ge=1, description="Numero da pagina do PDF, iniciando em 1.")
@@ -278,6 +284,16 @@ async def health() -> HealthResponse:
         dropbox_token_configured=bool(_dropbox_access_token_cache or dropbox_refresh_configured()),
         dropbox_refresh_configured=dropbox_refresh_configured(),
         output_root=DROPBOX_OUTPUT_ROOT,
+    )
+
+
+@app.post("/v1/dropbox/test-refresh", response_model=DropboxRefreshTestResponse, dependencies=[Depends(require_proxy_auth)])
+async def test_dropbox_refresh() -> DropboxRefreshTestResponse:
+    await refresh_dropbox_access_token()
+    return DropboxRefreshTestResponse(
+        ok=True,
+        message="Dropbox OAuth renovou access_token com sucesso pelo proxy.",
+        dropbox_refresh_configured=dropbox_refresh_configured(),
     )
 
 
