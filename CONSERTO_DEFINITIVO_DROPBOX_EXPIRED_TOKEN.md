@@ -66,8 +66,29 @@ O esperado:
 }
 ```
 
+## Se aparecer `invalid_client`
+
+Esse erro significa que o Dropbox recusou o par `DROPBOX_APP_KEY` + `DROPBOX_APP_SECRET` antes mesmo de renovar o token.
+
+Confira no Render:
+
+```text
+DROPBOX_APP_KEY=App key do Dropbox Developers
+DROPBOX_APP_SECRET=App secret do mesmo app Dropbox
+DROPBOX_REFRESH_TOKEN=refresh token gerado com esse mesmo App key e App secret
+```
+
+Cuidados importantes:
+
+- `DROPBOX_APP_KEY` nao comeca com `sl...`; `sl...` e access token antigo.
+- `DROPBOX_REFRESH_TOKEN` geralmente nao e igual ao access token `sl...`.
+- App key e App secret precisam ser do mesmo app Dropbox usado para gerar o refresh token.
+- Ao colar no Render, apague espacos antes/depois do valor.
+- Se houver duvida, gere um refresh token novo usando o script guiado e substitua os tres valores no Render.
+
 ## O que mudou no codigo
 
 - O GitHub foi atualizado no reposititorio `CAV-create/ultimateenem-visual-proxy`.
 - O proxy agora renova automaticamente quando o Dropbox devolve `401 expired_access_token`.
+- O proxy tambem remove espacos invisiveis das variaveis e envia `client_id/client_secret` no formato aceito pelo OAuth do Dropbox.
 - O GPT/Dr. Imagem continua usando apenas `VISUAL_PROXY_API_KEY`; ele nunca recebe token Dropbox.
