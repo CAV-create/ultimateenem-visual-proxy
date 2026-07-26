@@ -29,21 +29,21 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
-DROPBOX_ACCESS_TOKEN = os.environ.get("DROPBOX_ACCESS_TOKEN", "")
-DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN", "")
-DROPBOX_APP_KEY = os.environ.get("DROPBOX_APP_KEY", "")
-DROPBOX_APP_SECRET = os.environ.get("DROPBOX_APP_SECRET", "")
-VISUAL_PROXY_API_KEY = os.environ.get("VISUAL_PROXY_API_KEY", "")
+DROPBOX_ACCESS_TOKEN = os.environ.get("DROPBOX_ACCESS_TOKEN", "").strip()
+DROPBOX_REFRESH_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN", "").strip()
+DROPBOX_APP_KEY = os.environ.get("DROPBOX_APP_KEY", "").strip()
+DROPBOX_APP_SECRET = os.environ.get("DROPBOX_APP_SECRET", "").strip()
+VISUAL_PROXY_API_KEY = os.environ.get("VISUAL_PROXY_API_KEY", "").strip()
 DROPBOX_OUTPUT_ROOT = os.environ.get(
     "DROPBOX_OUTPUT_ROOT",
     "/ENEM 2026 App/ULTIMATE_ENEM_DR_IMAGEM_PIPELINE/02_DR_IMAGEM_PARA_CODEX_PERFEITAS",
-)
+).strip()
 DEFAULT_RENDER_DPI = env_int("DEFAULT_RENDER_DPI", 220)
 _dropbox_access_token_cache = DROPBOX_ACCESS_TOKEN
 
 app = FastAPI(
     title="ultimateENEM Visual Proxy",
-    version="1.1.0",
+    version="1.1.1",
     description="Proxy para localizar PDFs no Dropbox, renderizar paginas, recortar recursos visuais e salvar PNG/WebP.",
 )
 
@@ -68,8 +68,12 @@ async def refresh_dropbox_access_token() -> str:
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             DROPBOX_OAUTH_TOKEN_URL,
-            data={"grant_type": "refresh_token", "refresh_token": DROPBOX_REFRESH_TOKEN},
-            auth=(DROPBOX_APP_KEY, DROPBOX_APP_SECRET),
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": DROPBOX_REFRESH_TOKEN,
+                "client_id": DROPBOX_APP_KEY,
+                "client_secret": DROPBOX_APP_SECRET,
+            },
         )
     if response.status_code >= 400:
         raise HTTPException(
