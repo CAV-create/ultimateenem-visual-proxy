@@ -5,6 +5,12 @@ services:
     plan: starter
     autoDeploy: false
     envVars:
+      - key: DROPBOX_REFRESH_TOKEN
+        sync: false
+      - key: DROPBOX_APP_KEY
+        sync: false
+      - key: DROPBOX_APP_SECRET
+        sync: false
       - key: DROPBOX_ACCESS_TOKEN
         sync: false
       - key: VISUAL_PROXY_API_KEY
