@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ultimateenem-visual-proxy
+    env: docker
+    plan: starter
+    autoDeploy: false
+    envVars:
+      - key: DROPBOX_ACCESS_TOKEN
+        sync: false
+      - key: VISUAL_PROXY_API_KEY
+        sync: false
+      - key: DROPBOX_OUTPUT_ROOT
+        value: /ENEM 2026 App/ULTIMATE_ENEM_DR_IMAGEM_PIPELINE/02_DR_IMAGEM_PARA_CODEX_PERFEITAS
+      - key: DEFAULT_RENDER_DPI
+        value: "220"

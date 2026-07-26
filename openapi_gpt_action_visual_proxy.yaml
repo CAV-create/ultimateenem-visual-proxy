@@ -1,0 +1,231 @@
+openapi: 3.1.0
+info:
+  title: ultimateENEM Visual Proxy
+  version: 1.0.0
+  description: >
+    Proxy do ultimateENEM para localizar PDFs no Dropbox, renderizar paginas e
+    recortar recursos visuais de questoes do ENEM com fidelidade.
+servers:
+  - url: https://SEU-DOMINIO-DO-PROXY
+security:
+  - ApiKeyAuth: []
+paths:
+  /v1/dropbox/search:
+    post:
+      operationId: buscar_pdf_dropbox
+      summary: Busca PDFs ou arquivos no Dropbox do projeto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [query]
+              properties:
+                query:
+                  type: string
+                  description: Nome parcial do PDF ou trecho do caminho.
+                path:
+                  type: string
+                  default: /ENEM 2026 App
+                  description: Pasta inicial do Dropbox.
+                max_results:
+                  type: integer
+                  default: 10
+                  minimum: 1
+                  maximum: 50
+      responses:
+        "200":
+          description: Resultados encontrados no Dropbox.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  matches:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      properties:
+                        name:
+                          type: string
+                        path_display:
+                          type: string
+                        id:
+                          type: string
+                        client_modified:
+                          type: string
+  /v1/pdf/render-page:
+    post:
+      operationId: renderizar_pagina_pdf
+      summary: Renderiza uma pagina inteira de um PDF do Dropbox e salva no Dropbox.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [pdf_path, page_number]
+              properties:
+                pdf_path:
+                  type: string
+                  description: Caminho completo do PDF no Dropbox.
+                page_number:
+                  type: integer
+                  minimum: 1
+                  description: Numero da pagina do PDF, iniciando em 1.
+                dpi:
+                  type: integer
+                  default: 220
+                  minimum: 96
+                  maximum: 360
+                output_folder:
+                  type: string
+                  description: Pasta Dropbox de saida.
+                output_name:
+                  type: string
+                  description: Nome base do arquivo sem extensao.
+                image_format:
+                  type: string
+                  enum: [png, webp]
+                  default: png
+                webp_quality:
+                  type: integer
+                  default: 88
+                  minimum: 40
+                  maximum: 100
+      responses:
+        "200":
+          description: Pagina renderizada e salva.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisualOperationResponse"
+  /v1/pdf/crop:
+    post:
+      operationId: recortar_recurso_visual_pdf
+      summary: Recorta uma regiao de uma pagina de PDF do Dropbox e salva PNG/WebP no Dropbox.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [pdf_path, page_number, bbox, output_basename]
+              properties:
+                pdf_path:
+                  type: string
+                  description: Caminho completo do PDF no Dropbox.
+                page_number:
+                  type: integer
+                  minimum: 1
+                  description: Numero da pagina do PDF, iniciando em 1.
+                bbox:
+                  type: object
+                  additionalProperties: false
+                  required: [x, y, w, h]
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+                    w:
+                      type: number
+                    h:
+                      type: number
+                units:
+                  type: string
+                  enum: [normalized, pixels]
+                  default: normalized
+                  description: normalized usa coordenadas entre 0 e 1; pixels usa coordenadas da pagina renderizada.
+                dpi:
+                  type: integer
+                  default: 220
+                  minimum: 96
+                  maximum: 360
+                pad_px:
+                  type: integer
+                  default: 10
+                  minimum: 0
+                  maximum: 120
+                  description: Sangria/margem controlada ao redor do recurso.
+                output_folder:
+                  type: string
+                  description: Pasta Dropbox de saida.
+                output_basename:
+                  type: string
+                  description: Nome base dos arquivos gerados sem extensao.
+                make_png:
+                  type: boolean
+                  default: true
+                make_webp:
+                  type: boolean
+                  default: true
+                webp_quality:
+                  type: integer
+                  default: 88
+                  minimum: 40
+                  maximum: 100
+      responses:
+        "200":
+          description: Recurso visual recortado e salvo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisualOperationResponse"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Use o valor Bearer seguido da chave VISUAL_PROXY_API_KEY.
+  schemas:
+    UploadedAsset:
+      type: object
+      additionalProperties: false
+      properties:
+        format:
+          type: string
+          enum: [png, webp]
+        dropbox_path:
+          type: string
+        temporary_link:
+          type: string
+        bytes:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+    VisualOperationResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        pdf_path:
+          type: string
+        page_number:
+          type: integer
+        dpi:
+          type: integer
+        page_width:
+          type: integer
+        page_height:
+          type: integer
+        crop_box_pixels:
+          type: array
+          description: Vazio quando a pagina inteira foi renderizada; no recorte vem [x1, y1, x2, y2].
+          items:
+            type: integer
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadedAsset"
