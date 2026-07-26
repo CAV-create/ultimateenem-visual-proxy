@@ -12,7 +12,7 @@ Ele chama o nosso proxy:
 Dr. Imagem -> ultimateENEM Visual Proxy -> Dropbox -> PDF -> recorte -> Dropbox
 ```
 
-Assim o GPT nao precisa manipular binario de PDF. O servidor faz isso.
+Assim o GPT nao precisa manipular binario de PDF. O servidor faz isso e renova o token Dropbox automaticamente.
 
 ## No GPT Builder
 
@@ -46,23 +46,21 @@ Valor da chave:
 Bearer COLE_AQUI_A_VISUAL_PROXY_API_KEY
 ```
 
-Importante: nao cole o token `sl...` do Dropbox aqui. O token Dropbox fica apenas no backend.
+Importante: nao cole token `sl...` do Dropbox aqui. O token Dropbox fica apenas no backend Render.
 
 ### 3. Schema
 
 Cole o conteudo de:
 
 ```text
-/Users/CAV/Documents/Codex/2026-06-12/quero-escrever-um-app-de-produtividade/work/ultimateenem_visual_proxy/openapi_gpt_action_visual_proxy.yaml
+openapi_gpt_action_visual_proxy.yaml
 ```
 
-Antes de colar, troque:
+A URL publica real ja deve estar no schema:
 
 ```text
-https://SEU-DOMINIO-DO-PROXY
+https://ultimateenem-visual-proxy.onrender.com
 ```
-
-pela URL publica real do backend.
 
 ## O que o Dr. Imagem deve fazer
 
@@ -87,6 +85,7 @@ Salve em:
 Nome base:
 bloco27_q07_texto_i_visual
 Gere PNG para auditoria e WebP leve para app.
+Use pad_px entre 18 e 28 para evitar corte rente.
 ```
 
 ## Campos que importam
@@ -95,7 +94,7 @@ Gere PNG para auditoria e WebP leve para app.
 - `page_number`: pagina do PDF, comecando em 1.
 - `bbox`: retangulo de recorte.
 - `units`: use `normalized` quando as coordenadas forem de 0 a 1.
-- `pad_px`: sangria uniforme; comece com 10 ou 12.
+- `pad_px`: sangria uniforme; comece com 22.
 - `output_folder`: pasta final no Dropbox.
 - `output_basename`: nome base sem extensao.
 
@@ -117,11 +116,13 @@ bloco29_cti_repair
 
 O GPT Builder recebe apenas `VISUAL_PROXY_API_KEY`.
 
-O servidor recebe:
+O servidor Render recebe:
 
 ```text
-DROPBOX_ACCESS_TOKEN=sl...
+DROPBOX_REFRESH_TOKEN=...
+DROPBOX_APP_KEY=...
+DROPBOX_APP_SECRET=...
 VISUAL_PROXY_API_KEY=...
 ```
 
-Se o token Dropbox expirar, atualizamos somente o servidor. O GPT nao precisa mudar.
+`DROPBOX_ACCESS_TOKEN=sl...` e opcional/legado, apenas para teste. Para nao travar novamente por `expired_access_token`, use as tres variaveis definitivas acima. O GPT nao recebe token Dropbox.
