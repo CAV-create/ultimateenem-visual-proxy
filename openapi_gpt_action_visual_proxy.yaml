@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: ultimateENEM Visual Proxy
-  version: 1.1.2
+  version: 1.2.0
   description: >
-    Proxy do ultimateENEM para localizar PDFs no Dropbox, renderizar paginas e
-    recortar recursos visuais de questoes do ENEM com fidelidade. O GPT deve
-    autenticar com Chave API no header Authorization; nao use OAuth no GPT Builder.
+    Proxy do ultimateENEM para localizar PDFs no Dropbox, renderizar paginas,
+    recortar recursos visuais e criar pranchas HTML de auditoria visual. O GPT
+    deve autenticar com Chave API no header Authorization; nao use OAuth no GPT Builder.
 servers:
   - url: https://ultimateenem-visual-proxy.onrender.com
 security:
@@ -203,6 +203,65 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/VisualOperationResponse"
+  /v1/audit/create-board:
+    post:
+      operationId: criar_prancha_auditoria_visual
+      summary: Cria uma prancha HTML de auditoria com original e tratado lado a lado.
+      description: >
+        Use esta action depois de renderizar/recortar/tratar as imagens. Ela nao
+        devolve links soltos: cria um HTML no Dropbox com cada caso aberto na tela,
+        original/PDF bruto na esquerda, imagem tratada na direita, checkbox
+        HOMOLOGADA, campo livre para motivo e botao de copiar parecer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [audit_title, cases, output_name]
+              properties:
+                audit_title:
+                  type: string
+                  default: AUDITORIA VISUAL
+                  description: Titulo da prancha, por exemplo AUDITORIA - BLOCO 28.
+                output_folder:
+                  type: string
+                  description: Pasta Dropbox de saida; se vazio usa DROPBOX_OUTPUT_ROOT.
+                output_name:
+                  type: string
+                  description: Nome base do HTML sem extensao.
+                cases:
+                  type: array
+                  minItems: 1
+                  maxItems: 80
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [case_id, title, original_path]
+                    properties:
+                      case_id:
+                        type: string
+                        description: Identificador curto do caso, como Q07.
+                      title:
+                        type: string
+                        description: Titulo curto exibido na prancha.
+                      original_path:
+                        type: string
+                        description: Caminho Dropbox da pagina/recorte bruto original.
+                      treated_path:
+                        type: string
+                        description: Caminho Dropbox da imagem tratada final, se ja existir.
+                      notes:
+                        type: string
+                        description: Observacao interna opcional.
+      responses:
+        "200":
+          description: Prancha HTML criada e salva no Dropbox.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditBoardResponse"
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -254,3 +313,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UploadedAsset"
+    AuditBoardResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        audit_title:
+          type: string
+        case_count:
+          type: integer
+        dropbox_path:
+          type: string
+        temporary_link:
+          type: string
