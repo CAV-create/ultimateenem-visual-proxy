@@ -14,6 +14,16 @@ Dr. Imagem -> ultimateENEM Visual Proxy -> Dropbox -> PDF -> recorte -> Dropbox
 
 Assim o GPT nao precisa manipular binario de PDF. O servidor faz isso e renova o token Dropbox automaticamente.
 
+## Regra que nao pode ser quebrada
+
+```text
+NAO use OAuth no GPT Builder.
+NAO use Dropbox OAuth.
+NAO cole App key/App secret do Dropbox no GPT Builder.
+```
+
+Se aparecer erro `Dropbox OAuth 400 invalid_client`, o GPT esta chamando Dropbox direto. Apague essa action e recrie com `Chave API`.
+
 ## No GPT Builder
 
 ### 1. Action
@@ -62,15 +72,34 @@ A URL publica real ja deve estar no schema:
 https://ultimateenem-visual-proxy.onrender.com
 ```
 
+## Teste obrigatorio antes do primeiro lote
+
+```text
+Use a action testar_oauth_dropbox_proxy. Retorne exatamente a resposta.
+```
+
+Resultado esperado:
+
+```json
+{
+  "ok": true,
+  "message": "Dropbox OAuth renovou access_token com sucesso pelo proxy.",
+  "dropbox_refresh_configured": true
+}
+```
+
+Se esse teste falhar com `invalid_client`, o problema esta nas variaveis do Render: `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` e `DROPBOX_REFRESH_TOKEN` precisam pertencer ao mesmo app Dropbox.
+
 ## O que o Dr. Imagem deve fazer
 
 Quando receber um caso, ele deve:
 
-1. usar `buscar_pdf_dropbox` se nao tiver o caminho completo;
-2. usar `renderizar_pagina_pdf` para ver a pagina inteira quando precisar conferir;
-3. usar `recortar_recurso_visual_pdf` para gerar PNG/WebP;
-4. devolver os links temporarios para o Prof. CAV auditar;
-5. nunca afirmar que salvou arquivo sem o retorno real do proxy.
+1. usar `testar_oauth_dropbox_proxy` antes do primeiro lote do dia;
+2. usar `buscar_pdf_dropbox` se nao tiver o caminho completo;
+3. usar `renderizar_pagina_pdf` para ver a pagina inteira quando precisar conferir;
+4. usar `recortar_recurso_visual_pdf` para gerar PNG/WebP;
+5. devolver os links temporarios para o Prof. CAV auditar;
+6. nunca afirmar que salvou arquivo sem o retorno real do proxy.
 
 ## Exemplo de comando para o Dr. Imagem
 
