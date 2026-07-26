@@ -1,15 +1,40 @@
 openapi: 3.1.0
 info:
   title: ultimateENEM Visual Proxy
-  version: 1.0.0
+  version: 1.1.2
   description: >
     Proxy do ultimateENEM para localizar PDFs no Dropbox, renderizar paginas e
-    recortar recursos visuais de questoes do ENEM com fidelidade.
+    recortar recursos visuais de questoes do ENEM com fidelidade. O GPT deve
+    autenticar com Chave API no header Authorization; nao use OAuth no GPT Builder.
 servers:
   - url: https://ultimateenem-visual-proxy.onrender.com
 security:
   - ApiKeyAuth: []
 paths:
+  /v1/dropbox/test-refresh:
+    post:
+      operationId: testar_oauth_dropbox_proxy
+      summary: Testa se o proxy consegue renovar o token do Dropbox.
+      description: >
+        Use este teste antes de buscar PDFs. Se falhar com invalid_client,
+        o problema esta nas variaveis DROPBOX_APP_KEY, DROPBOX_APP_SECRET ou
+        DROPBOX_REFRESH_TOKEN no Render. Esta action usa a chave do proxy no
+        header Authorization; nao usa OAuth no GPT Builder.
+      responses:
+        "200":
+          description: Token Dropbox renovado com sucesso pelo proxy.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+                  dropbox_refresh_configured:
+                    type: boolean
   /v1/dropbox/search:
     post:
       operationId: buscar_pdf_dropbox
@@ -184,7 +209,7 @@ components:
       type: apiKey
       in: header
       name: Authorization
-      description: Use o valor Bearer seguido da chave VISUAL_PROXY_API_KEY.
+      description: Use o valor Bearer seguido da chave VISUAL_PROXY_API_KEY. Nao use OAuth.
   schemas:
     UploadedAsset:
       type: object
