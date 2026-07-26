@@ -6,7 +6,7 @@ info:
     Proxy do ultimateENEM para localizar PDFs no Dropbox, renderizar paginas e
     recortar recursos visuais de questoes do ENEM com fidelidade.
 servers:
-  - url: https://SEU-DOMINIO-DO-PROXY
+  - url: https://ultimateenem-visual-proxy.onrender.com
 security:
   - ApiKeyAuth: []
 paths:
