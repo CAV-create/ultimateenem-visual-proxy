@@ -4,27 +4,12 @@ import html as html_lib
 import json
 from typing import Any, Literal
 
-from fastapi import Depends
-from pydantic import BaseModel, Field
+from fastapi import Body, Depends, HTTPException
+from pydantic import BaseModel
 
 from main import app, clean_filename, dropbox_join, dropbox_temporary_link, dropbox_upload, require_proxy_auth
 
-app.version = "1.2.0"
-
-
-class AuditVisualCase(BaseModel):
-    case_id: str = Field(..., description="Identificador curto do caso, como Q07.")
-    title: str = Field(..., description="Titulo curto exibido na prancha.")
-    original_path: str = Field(..., description="Caminho Dropbox da pagina/recorte bruto original.")
-    treated_path: str | None = Field(None, description="Caminho Dropbox da imagem tratada final, se ja existir.")
-    notes: str | None = Field(None, description="Observacao interna opcional.")
-
-
-class AuditBoardRequest(BaseModel):
-    audit_title: str = Field("AUDITORIA VISUAL", description="Titulo da prancha.")
-    cases: list[AuditVisualCase] = Field(..., min_length=1, max_length=80)
-    output_folder: str | None = Field(None, description="Pasta Dropbox de saida; se vazio usa DROPBOX_OUTPUT_ROOT.")
-    output_name: str = Field(..., description="Nome base do HTML sem extensao.")
+app.version = "1.2.1"
 
 
 class AuditBoardResponse(BaseModel):
@@ -35,9 +20,118 @@ class AuditBoardResponse(BaseModel):
     temporary_link: str
 
 
-async def link_for_dropbox_image(path: str) -> dict[str, str]:
-    link_data = await dropbox_temporary_link(path)
-    return {"path": path, "link": link_data["link"]}
+def pick(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def coerce_path(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return pick(value, "path", "dropbox_path", "path_display", "link", "temporary_link")
+    return str(value)
+
+
+def normalize_cases(payload: dict[str, Any]) -> list[dict[str, str | None]]:
+    raw_cases = pick(payload, "cases", "casos", "items", "questoes")
+    if isinstance(raw_cases, dict):
+        raw_cases = list(raw_cases.values())
+    if not isinstance(raw_cases, list) or not raw_cases:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Envie uma lista de casos em cases/casos/items.",
+                "example": {
+                    "audit_title": "AUDITORIA - BLOCO 28",
+                    "cases": [
+                        {
+                            "case_id": "Q01",
+                            "title": "Cartaz",
+                            "original_path": "/caminho/original.png",
+                            "treated_path": "/caminho/tratada.webp",
+                        }
+                    ],
+                },
+            },
+        )
+
+    normalized: list[dict[str, str | None]] = []
+    missing_original: list[str] = []
+    for index, item in enumerate(raw_cases, start=1):
+        if not isinstance(item, dict):
+            case_id = f"Q{index:02d}"
+            missing_original.append(case_id)
+            continue
+
+        case_id = str(pick(item, "case_id", "id", "questao", "q", "numero", default=f"Q{index:02d}")).strip()
+        title = str(pick(item, "title", "titulo", "descricao", "description", default=case_id)).strip()
+        original_path = coerce_path(
+            pick(
+                item,
+                "original_path",
+                "original",
+                "original_dropbox_path",
+                "pdf_bruto_path",
+                "bruto_path",
+                "raw_path",
+                "source_path",
+            )
+        )
+        treated_path = coerce_path(
+            pick(
+                item,
+                "treated_path",
+                "treated",
+                "tratada_path",
+                "imagem_tratada_path",
+                "final_path",
+                "processed_path",
+            )
+        )
+        notes = pick(item, "notes", "observacoes", "nota", "comentario", "comment")
+        if not original_path:
+            missing_original.append(case_id)
+        normalized.append(
+            {
+                "case_id": case_id,
+                "title": title,
+                "original_path": original_path,
+                "treated_path": treated_path,
+                "notes": str(notes).strip() if notes not in (None, "") else None,
+            }
+        )
+
+    if missing_original:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Alguns casos nao possuem original_path/original. A prancha precisa do PDF bruto ou imagem original para comparar.",
+                "missing_cases": missing_original,
+                "accepted_keys": [
+                    "original_path",
+                    "original",
+                    "original_dropbox_path",
+                    "pdf_bruto_path",
+                    "bruto_path",
+                    "raw_path",
+                    "source_path",
+                ],
+            },
+        )
+    return normalized
+
+
+async def link_for_visual(value: str) -> dict[str, str]:
+    if value.startswith("http://") or value.startswith("https://"):
+        return {"path": value, "link": value}
+    link_data = await dropbox_temporary_link(value)
+    return {"path": value, "link": link_data["link"]}
 
 
 def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str:
@@ -158,31 +252,40 @@ def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str
 
 
 @app.post("/v1/audit/create-board", response_model=AuditBoardResponse, dependencies=[Depends(require_proxy_auth)])
-async def create_audit_board(request: AuditBoardRequest) -> AuditBoardResponse:
+async def create_audit_board(payload: dict[str, Any] = Body(...)) -> AuditBoardResponse:
     # Import here so the module reflects the current env/default from main at runtime.
     from main import DROPBOX_OUTPUT_ROOT
 
-    output_folder = request.output_folder or DROPBOX_OUTPUT_ROOT
+    audit_title = str(pick(payload, "audit_title", "title", "titulo", default="AUDITORIA VISUAL")).strip()
+    output_folder = pick(payload, "output_folder", "folder", "pasta", default=None) or DROPBOX_OUTPUT_ROOT
+    output_name = str(
+        pick(payload, "output_name", "name", "nome", "nome_arquivo", default=clean_filename(audit_title))
+    ).strip()
+    if not output_name:
+        output_name = clean_filename(audit_title)
+
+    normalized_cases = normalize_cases(payload)
     linked_cases: list[dict[str, Any]] = []
-    for case in request.cases:
+    for case in normalized_cases:
+        treated_path = case.get("treated_path")
         linked_cases.append(
             {
-                "case_id": case.case_id,
-                "title": case.title,
-                "notes": case.notes,
-                "original": await link_for_dropbox_image(case.original_path),
-                "treated": await link_for_dropbox_image(case.treated_path) if case.treated_path else None,
+                "case_id": case["case_id"],
+                "title": case["title"],
+                "notes": case.get("notes"),
+                "original": await link_for_visual(case["original_path"] or ""),
+                "treated": await link_for_visual(treated_path) if treated_path else None,
             }
         )
 
-    html_text = build_audit_board_html(request.audit_title, linked_cases)
-    dropbox_path = dropbox_join(output_folder, f"{clean_filename(request.output_name)}.html")
+    html_text = build_audit_board_html(audit_title, linked_cases)
+    dropbox_path = dropbox_join(str(output_folder), f"{clean_filename(output_name)}.html")
     await dropbox_upload(dropbox_path, html_text.encode("utf-8"))
     link_data = await dropbox_temporary_link(dropbox_path)
     return AuditBoardResponse(
         status="ok",
-        audit_title=request.audit_title,
-        case_count=len(request.cases),
+        audit_title=audit_title,
+        case_count=len(normalized_cases),
         dropbox_path=dropbox_path,
         temporary_link=link_data["link"],
     )
