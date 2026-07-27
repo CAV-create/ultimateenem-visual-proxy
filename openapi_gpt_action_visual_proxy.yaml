@@ -220,7 +220,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-              required: [cases]
               properties:
                 audit_title:
                   type: string
@@ -243,36 +242,25 @@ paths:
                   minItems: 1
                   maxItems: 80
                   items:
-                    type: object
-                    additionalProperties: true
-                    properties:
-                      case_id:
-                        type: string
-                        description: Identificador curto do caso, como Q07. Tambem aceita id, questao, q ou numero.
-                      id:
-                        type: string
-                        description: Alias aceito para case_id.
-                      title:
-                        type: string
-                        description: Titulo curto exibido na prancha. Tambem aceita titulo, descricao ou description.
-                      titulo:
-                        type: string
-                        description: Alias aceito para title.
-                      original_path:
-                        type: string
-                        description: Caminho Dropbox da pagina/recorte bruto original. Tambem aceita original, original_dropbox_path, pdf_bruto_path, bruto_path, raw_path ou source_path.
-                      original:
-                        type: string
-                        description: Alias aceito para original_path.
-                      treated_path:
-                        type: string
-                        description: Caminho Dropbox da imagem tratada final. Tambem aceita treated, tratada_path, imagem_tratada_path, final_path ou processed_path.
-                      treated:
-                        type: string
-                        description: Alias aceito para treated_path.
-                      notes:
-                        type: string
-                        description: Observacao interna opcional. Tambem aceita observacoes, nota, comentario ou comment.
+                    $ref: "#/components/schemas/AuditCaseInput"
+                casos:
+                  type: array
+                  minItems: 1
+                  maxItems: 80
+                  items:
+                    $ref: "#/components/schemas/AuditCaseInput"
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 80
+                  items:
+                    $ref: "#/components/schemas/AuditCaseInput"
+                questoes:
+                  type: array
+                  minItems: 1
+                  maxItems: 80
+                  items:
+                    $ref: "#/components/schemas/AuditCaseInput"
       responses:
         "200":
           description: Prancha HTML criada e salva no Dropbox.
@@ -288,6 +276,52 @@ components:
       name: Authorization
       description: Use o valor Bearer seguido da chave VISUAL_PROXY_API_KEY. Nao use OAuth.
   schemas:
+    AuditCaseInput:
+      type: object
+      additionalProperties: true
+      properties:
+        case_id:
+          type: string
+          description: Identificador curto do caso, como Q07. Tambem aceita id, questao, q ou numero.
+        id:
+          type: string
+          description: Alias aceito para case_id.
+        questao:
+          type: string
+          description: Alias aceito para case_id.
+        title:
+          type: string
+          description: Titulo curto exibido na prancha. Tambem aceita titulo, descricao ou description.
+        titulo:
+          type: string
+          description: Alias aceito para title.
+        descricao:
+          type: string
+          description: Alias aceito para title.
+        original_path:
+          type: string
+          description: Caminho Dropbox da pagina/recorte bruto original. Tambem aceita original, original_dropbox_path, pdf_bruto_path, bruto_path, raw_path ou source_path.
+        original:
+          type: string
+          description: Alias aceito para original_path.
+        original_dropbox_path:
+          type: string
+          description: Alias aceito para original_path.
+        treated_path:
+          type: string
+          description: Caminho Dropbox da imagem tratada final. Tambem aceita treated, tratada_path, imagem_tratada_path, final_path ou processed_path.
+        treated:
+          type: string
+          description: Alias aceito para treated_path.
+        tratada_path:
+          type: string
+          description: Alias aceito para treated_path.
+        notes:
+          type: string
+          description: Observacao interna opcional. Tambem aceita observacoes, nota, comentario ou comment.
+        observacoes:
+          type: string
+          description: Alias aceito para notes.
     UploadedAsset:
       type: object
       additionalProperties: false
