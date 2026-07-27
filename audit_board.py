@@ -5,11 +5,80 @@ import json
 from typing import Any, Literal
 
 from fastapi import Body, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from main import app, clean_filename, dropbox_join, dropbox_temporary_link, dropbox_upload, require_proxy_auth
 
-app.version = "1.2.1"
+app.version = "1.2.3"
+
+
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+async def privacy_policy() -> str:
+    return """<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Politica de Privacidade - ultimateENEM Visual Proxy</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { max-width: 860px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
+    h1 { line-height: 1.15; }
+    h2 { margin-top: 30px; }
+    code { background: rgba(127,127,127,.15); padding: 2px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Politica de Privacidade - ultimateENEM Visual Proxy</h1>
+  <p><strong>Ultima atualizacao:</strong> 26 de julho de 2026.</p>
+  <p>
+    O ultimateENEM Visual Proxy e um servico privado de apoio ao projeto Dr. Imagem ENEM Premium.
+    Ele ajuda a localizar PDFs autorizados no Dropbox do projeto, renderizar paginas, recortar recursos
+    visuais e salvar arquivos de auditoria para revisao pedagogica.
+  </p>
+
+  <h2>Dados processados</h2>
+  <p>
+    O servico processa apenas os caminhos de arquivos, nomes de saida, coordenadas de recorte e metadados
+    enviados explicitamente por uma Action do GPT ou por operadores autorizados do projeto. Quando solicitado,
+    o servico acessa PDFs e imagens no Dropbox conectado para gerar pre-visualizacoes, PNG, WebP e pranchas HTML.
+  </p>
+
+  <h2>Uso do Dropbox</h2>
+  <p>
+    O Dropbox e usado somente para ler arquivos-fonte do projeto e gravar os resultados nas pastas configuradas
+    do pipeline ultimateENEM. Links temporarios podem ser gerados para auditoria visual. Esses links sao usados
+    para revisao do material e nao sao vendidos ou compartilhados com terceiros para publicidade.
+  </p>
+
+  <h2>Credenciais e seguranca</h2>
+  <p>
+    Chaves, tokens e segredos ficam configurados como variaveis de ambiente no backend hospedado no Render.
+    O GPT deve chamar este proxy com <code>Authorization: Bearer</code> usando a chave propria do proxy. Tokens
+    do Dropbox nao devem ser colados em conversas do GPT nem expostos ao usuario final.
+  </p>
+
+  <h2>Retencao</h2>
+  <p>
+    O servico nao cria um banco de dados proprio de usuarios. Os arquivos gerados permanecem nas pastas do
+    Dropbox do projeto ate que um operador autorizado os remova ou substitua.
+  </p>
+
+  <h2>Compartilhamento</h2>
+  <p>
+    Nao vendemos dados, nao usamos os arquivos para publicidade e nao compartilhamos o conteudo com terceiros,
+    exceto quando necessario para operar os servicos contratados pelo proprio projeto, como hospedagem Render
+    e armazenamento Dropbox.
+  </p>
+
+  <h2>Contato</h2>
+  <p>
+    Para perguntas sobre esta politica ou sobre arquivos processados pelo pipeline, entre em contato com a
+    administracao do projeto ultimateENEM.
+  </p>
+</body>
+</html>"""
 
 
 class AuditBoardResponse(BaseModel):
