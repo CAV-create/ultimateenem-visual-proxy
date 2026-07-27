@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ultimateENEM Visual Proxy
-  version: 1.2.0
+  version: 1.2.1
   description: >
     Proxy do ultimateENEM para localizar PDFs no Dropbox, renderizar paginas,
     recortar recursos visuais e criar pranchas HTML de auditoria visual. O GPT
@@ -208,53 +208,71 @@ paths:
       operationId: criar_prancha_auditoria_visual
       summary: Cria uma prancha HTML de auditoria com original e tratado lado a lado.
       description: >
-        Use esta action depois de renderizar/recortar/tratar as imagens. Ela nao
-        devolve links soltos: cria um HTML no Dropbox com cada caso aberto na tela,
-        original/PDF bruto na esquerda, imagem tratada na direita, checkbox
-        HOMOLOGADA, campo livre para motivo e botao de copiar parecer.
+        Use esta action depois de renderizar/recortar/tratar as imagens. Ela cria
+        um HTML no Dropbox com cada caso aberto na tela: original/PDF bruto na
+        esquerda, imagem tratada na direita, checkbox HOMOLOGADA, campo livre para
+        motivo e botao de copiar parecer. O endpoint aceita nomes em portugues ou
+        ingles para reduzir erro 400 do GPT.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              additionalProperties: false
-              required: [audit_title, cases, output_name]
+              additionalProperties: true
+              required: [cases]
               properties:
                 audit_title:
                   type: string
                   default: AUDITORIA VISUAL
-                  description: Titulo da prancha, por exemplo AUDITORIA - BLOCO 28.
+                  description: Titulo da prancha. Tambem aceita title ou titulo.
+                title:
+                  type: string
+                  description: Alias aceito para audit_title.
+                titulo:
+                  type: string
+                  description: Alias aceito para audit_title.
                 output_folder:
                   type: string
-                  description: Pasta Dropbox de saida; se vazio usa DROPBOX_OUTPUT_ROOT.
+                  description: Pasta Dropbox de saida. Tambem aceita folder ou pasta. Se vazio usa DROPBOX_OUTPUT_ROOT.
                 output_name:
                   type: string
-                  description: Nome base do HTML sem extensao.
+                  description: Nome base do HTML sem extensao. Tambem aceita name, nome ou nome_arquivo. Se vazio usa o titulo.
                 cases:
                   type: array
                   minItems: 1
                   maxItems: 80
                   items:
                     type: object
-                    additionalProperties: false
-                    required: [case_id, title, original_path]
+                    additionalProperties: true
                     properties:
                       case_id:
                         type: string
-                        description: Identificador curto do caso, como Q07.
+                        description: Identificador curto do caso, como Q07. Tambem aceita id, questao, q ou numero.
+                      id:
+                        type: string
+                        description: Alias aceito para case_id.
                       title:
                         type: string
-                        description: Titulo curto exibido na prancha.
+                        description: Titulo curto exibido na prancha. Tambem aceita titulo, descricao ou description.
+                      titulo:
+                        type: string
+                        description: Alias aceito para title.
                       original_path:
                         type: string
-                        description: Caminho Dropbox da pagina/recorte bruto original.
+                        description: Caminho Dropbox da pagina/recorte bruto original. Tambem aceita original, original_dropbox_path, pdf_bruto_path, bruto_path, raw_path ou source_path.
+                      original:
+                        type: string
+                        description: Alias aceito para original_path.
                       treated_path:
                         type: string
-                        description: Caminho Dropbox da imagem tratada final, se ja existir.
+                        description: Caminho Dropbox da imagem tratada final. Tambem aceita treated, tratada_path, imagem_tratada_path, final_path ou processed_path.
+                      treated:
+                        type: string
+                        description: Alias aceito para treated_path.
                       notes:
                         type: string
-                        description: Observacao interna opcional.
+                        description: Observacao interna opcional. Tambem aceita observacoes, nota, comentario ou comment.
       responses:
         "200":
           description: Prancha HTML criada e salva no Dropbox.
