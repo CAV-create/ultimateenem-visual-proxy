@@ -8,9 +8,17 @@ from fastapi import Body, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from main import app, clean_filename, dropbox_join, dropbox_temporary_link, dropbox_upload, require_proxy_auth
+from main import (
+    DROPBOX_OUTPUT_ROOT,
+    app,
+    clean_filename,
+    dropbox_join,
+    dropbox_temporary_link,
+    dropbox_upload,
+    require_proxy_auth,
+)
 
-app.version = "1.2.3"
+app.version = "1.3.0"
 
 
 @app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
@@ -24,59 +32,21 @@ async def privacy_policy() -> str:
   <style>
     :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     body { max-width: 860px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
-    h1 { line-height: 1.15; }
-    h2 { margin-top: 30px; }
     code { background: rgba(127,127,127,.15); padding: 2px 5px; border-radius: 4px; }
   </style>
 </head>
 <body>
   <h1>Politica de Privacidade - ultimateENEM Visual Proxy</h1>
   <p><strong>Ultima atualizacao:</strong> 26 de julho de 2026.</p>
-  <p>
-    O ultimateENEM Visual Proxy e um servico privado de apoio ao projeto Dr. Imagem ENEM Premium.
-    Ele ajuda a localizar PDFs autorizados no Dropbox do projeto, renderizar paginas, recortar recursos
-    visuais e salvar arquivos de auditoria para revisao pedagogica.
-  </p>
-
+  <p>Este servico privado apoia o pipeline ultimateENEM para localizar PDFs autorizados no Dropbox, renderizar paginas, recortar recursos visuais e criar pranchas de auditoria.</p>
   <h2>Dados processados</h2>
-  <p>
-    O servico processa apenas os caminhos de arquivos, nomes de saida, coordenadas de recorte e metadados
-    enviados explicitamente por uma Action do GPT ou por operadores autorizados do projeto. Quando solicitado,
-    o servico acessa PDFs e imagens no Dropbox conectado para gerar pre-visualizacoes, PNG, WebP e pranchas HTML.
-  </p>
-
-  <h2>Uso do Dropbox</h2>
-  <p>
-    O Dropbox e usado somente para ler arquivos-fonte do projeto e gravar os resultados nas pastas configuradas
-    do pipeline ultimateENEM. Links temporarios podem ser gerados para auditoria visual. Esses links sao usados
-    para revisao do material e nao sao vendidos ou compartilhados com terceiros para publicidade.
-  </p>
-
-  <h2>Credenciais e seguranca</h2>
-  <p>
-    Chaves, tokens e segredos ficam configurados como variaveis de ambiente no backend hospedado no Render.
-    O GPT deve chamar este proxy com <code>Authorization: Bearer</code> usando a chave propria do proxy. Tokens
-    do Dropbox nao devem ser colados em conversas do GPT nem expostos ao usuario final.
-  </p>
-
-  <h2>Retencao</h2>
-  <p>
-    O servico nao cria um banco de dados proprio de usuarios. Os arquivos gerados permanecem nas pastas do
-    Dropbox do projeto ate que um operador autorizado os remova ou substitua.
-  </p>
-
+  <p>Processamos caminhos de arquivos, nomes de saida, coordenadas de recorte e metadados enviados por operadores autorizados ou por uma Action configurada com chave do proxy.</p>
+  <h2>Dropbox</h2>
+  <p>O Dropbox e usado apenas para ler arquivos-fonte do projeto e salvar pre-visualizacoes, imagens tratadas e HTMLs de auditoria nas pastas configuradas do pipeline.</p>
+  <h2>Credenciais</h2>
+  <p>Tokens e chaves ficam em variaveis de ambiente no Render. O GPT deve chamar o proxy com <code>Authorization: Bearer</code> usando a chave do proxy.</p>
   <h2>Compartilhamento</h2>
-  <p>
-    Nao vendemos dados, nao usamos os arquivos para publicidade e nao compartilhamos o conteudo com terceiros,
-    exceto quando necessario para operar os servicos contratados pelo proprio projeto, como hospedagem Render
-    e armazenamento Dropbox.
-  </p>
-
-  <h2>Contato</h2>
-  <p>
-    Para perguntas sobre esta politica ou sobre arquivos processados pelo pipeline, entre em contato com a
-    administracao do projeto ultimateENEM.
-  </p>
+  <p>Nao vendemos dados e nao usamos arquivos do projeto para publicidade.</p>
 </body>
 </html>"""
 
@@ -84,7 +54,9 @@ async def privacy_policy() -> str:
 class AuditBoardResponse(BaseModel):
     status: Literal["ok"]
     audit_title: str
+    board_kind: Literal["localizacao", "final"]
     case_count: int
+    expected_case_count: int
     dropbox_path: str
     temporary_link: str
 
@@ -101,10 +73,36 @@ def coerce_path(value: Any) -> str | None:
     if value in (None, ""):
         return None
     if isinstance(value, str):
-        return value
+        return value.strip()
     if isinstance(value, dict):
         return pick(value, "path", "dropbox_path", "path_display", "link", "temporary_link")
-    return str(value)
+    return str(value).strip()
+
+
+def path_has_any(path: str | None, parts: list[str]) -> bool:
+    if not path:
+        return False
+    low = path.lower()
+    return any(part.lower() in low for part in parts)
+
+
+def expected_count_from(payload: dict[str, Any]) -> int:
+    raw = pick(payload, "expected_case_count", "expected_count", "total_esperado", "total_cases")
+    if raw in (None, ""):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "EXPECTED_CASE_COUNT_REQUIRED",
+                "message": "Informe expected_case_count. Pranchas parciais nao podem parecer lote completo.",
+            },
+        )
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="expected_case_count precisa ser numero inteiro.")
+    if count <= 0:
+        raise HTTPException(status_code=400, detail="expected_case_count precisa ser maior que zero.")
+    return count
 
 
 def normalize_cases(payload: dict[str, Any]) -> list[dict[str, str | None]]:
@@ -115,29 +113,15 @@ def normalize_cases(payload: dict[str, Any]) -> list[dict[str, str | None]]:
         raise HTTPException(
             status_code=400,
             detail={
+                "code": "CASES_REQUIRED",
                 "message": "Envie uma lista de casos em cases/casos/items.",
-                "example": {
-                    "audit_title": "AUDITORIA - BLOCO 28",
-                    "cases": [
-                        {
-                            "case_id": "Q01",
-                            "title": "Cartaz",
-                            "original_path": "/caminho/original.png",
-                            "treated_path": "/caminho/tratada.webp",
-                        }
-                    ],
-                },
             },
         )
 
     normalized: list[dict[str, str | None]] = []
-    missing_original: list[str] = []
     for index, item in enumerate(raw_cases, start=1):
         if not isinstance(item, dict):
-            case_id = f"Q{index:02d}"
-            missing_original.append(case_id)
-            continue
-
+            raise HTTPException(status_code=400, detail=f"Caso {index} nao e objeto.")
         case_id = str(pick(item, "case_id", "id", "questao", "q", "numero", default=f"Q{index:02d}")).strip()
         title = str(pick(item, "title", "titulo", "descricao", "description", default=case_id)).strip()
         original_path = coerce_path(
@@ -164,8 +148,6 @@ def normalize_cases(payload: dict[str, Any]) -> list[dict[str, str | None]]:
             )
         )
         notes = pick(item, "notes", "observacoes", "nota", "comentario", "comment")
-        if not original_path:
-            missing_original.append(case_id)
         normalized.append(
             {
                 "case_id": case_id,
@@ -175,25 +157,50 @@ def normalize_cases(payload: dict[str, Any]) -> list[dict[str, str | None]]:
                 "notes": str(notes).strip() if notes not in (None, "") else None,
             }
         )
+    return normalized
 
-    if missing_original:
+
+def validate_audit_board_payload(payload: dict[str, Any], cases: list[dict[str, str | None]]) -> tuple[Literal["localizacao", "final"], int]:
+    board_kind = str(pick(payload, "board_kind", "tipo_prancha", default="final")).strip().lower()
+    if board_kind not in {"localizacao", "final"}:
+        raise HTTPException(status_code=400, detail="board_kind deve ser 'localizacao' ou 'final'.")
+    expected = expected_count_from(payload)
+    if len(cases) != expected:
         raise HTTPException(
             status_code=400,
             detail={
-                "message": "Alguns casos nao possuem original_path/original. A prancha precisa do PDF bruto ou imagem original para comparar.",
-                "missing_cases": missing_original,
-                "accepted_keys": [
-                    "original_path",
-                    "original",
-                    "original_dropbox_path",
-                    "pdf_bruto_path",
-                    "bruto_path",
-                    "raw_path",
-                    "source_path",
-                ],
+                "code": "ENTREGA_INCOMPLETA",
+                "message": f"A prancha recebeu {len(cases)} casos, mas expected_case_count={expected}.",
             },
         )
-    return normalized
+
+    seen: set[str] = set()
+    errors: list[dict[str, Any]] = []
+    for case in cases:
+        case_id = case["case_id"] or "sem_id"
+        if case_id in seen:
+            errors.append({"case_id": case_id, "error": "DUPLICATE_CASE_ID"})
+        seen.add(case_id)
+
+        original_path = case.get("original_path")
+        treated_path = case.get("treated_path")
+        if not original_path:
+            errors.append({"case_id": case_id, "error": "MISSING_ORIGINAL_PATH"})
+        if path_has_any(original_path, ["/tratadas/", "/recortes/", "/perfeitas/"]):
+            errors.append({"case_id": case_id, "error": "ORIGINAL_LOOKS_TREATED", "path": original_path})
+
+        if board_kind == "final":
+            if not treated_path:
+                errors.append({"case_id": case_id, "error": "MISSING_TREATED_PATH"})
+            elif not treated_path.startswith("http"):
+                if path_has_any(treated_path, ["/_candidatas/", "/brutos/", "/originais/"]):
+                    errors.append({"case_id": case_id, "error": "TREATED_LOOKS_RAW", "path": treated_path})
+                if not path_has_any(treated_path, ["/tratadas/", "/recortes/", "/perfeitas/"]):
+                    errors.append({"case_id": case_id, "error": "TREATED_PATH_OUTSIDE_FINAL_FOLDERS", "path": treated_path})
+
+    if errors:
+        raise HTTPException(status_code=400, detail={"code": "AUDIT_BOARD_VALIDATION_FAILED", "errors": errors})
+    return board_kind, expected
 
 
 async def link_for_visual(value: str) -> dict[str, str]:
@@ -203,8 +210,26 @@ async def link_for_visual(value: str) -> dict[str, str]:
     return {"path": value, "link": link_data["link"]}
 
 
-def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str:
+def issue_checkbox(issue_id: str, label: str) -> str:
+    safe_id = html_lib.escape(issue_id, quote=True)
+    safe_label = html_lib.escape(label)
+    return f'<label><input type="checkbox" class="issue" value="{safe_label}" data-issue="{safe_id}"> {safe_label}</label>'
+
+
+def build_audit_board_html(audit_title: str, board_kind: str, cases: list[dict[str, Any]]) -> str:
     escaped_title = html_lib.escape(audit_title)
+    issue_labels = [
+        ("faltou_imagem", "Faltou imagem/recurso visual"),
+        ("fonte_ausente", "Fonte ausente"),
+        ("fonte_misturada", "Fonte misturada com pergunta"),
+        ("texto_cortado", "Texto/enunciado incompleto"),
+        ("paragrafo", "Paragrafo ou quebra de texto"),
+        ("numero_errado", "Questao duplicada ou numero errado"),
+        ("recorte_rente", "Recorte muito rente"),
+        ("lixo_ocr", "Sobrou OCR/lixo"),
+        ("conferir_original", "Conferir original"),
+    ]
+    issue_html = "".join(issue_checkbox(issue_id, label) for issue_id, label in issue_labels)
     cards: list[str] = []
     for index, case in enumerate(cases, start=1):
         case_id = html_lib.escape(case["case_id"])
@@ -216,8 +241,9 @@ def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str
         treated_img = (
             f'<img src="{html_lib.escape(treated["link"], quote=True)}" alt="Tratada {case_id}" loading="lazy">'
             if treated
-            else '<div class="missing">Imagem tratada ainda nao informada.</div>'
+            else '<div class="missing">Prancha de localizacao: imagem tratada ainda nao informada.</div>'
         )
+        treated_code = html_lib.escape(treated["path"]) if treated else ""
         cards.append(
             f"""
             <article class="case-card" data-case="{case_id}" data-title="{title}">
@@ -237,17 +263,14 @@ def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str
                 <section>
                   <h3>Imagem tratada</h3>
                   <div class="image-frame">{treated_img}</div>
-                  <code>{html_lib.escape(treated["path"]) if treated else ""}</code>
+                  <code>{treated_code}</code>
                 </section>
               </div>
-              <label class="homologacao">
-                <input type="checkbox" class="approved">
-                <span>HOMOLOGADA</span>
-              </label>
-              <label class="reason-label">
-                Motivo, caso nao seja homologada
-                <textarea class="reason" placeholder="Descreva o ajuste necessario."></textarea>
-              </label>
+              <div class="audit-controls">
+                <label class="homologacao"><input type="checkbox" class="approved"><span>HOMOLOGADA</span></label>
+                <div class="issue-grid">{issue_html}</div>
+                <label class="reason-label">Motivo, caso nao seja homologada<textarea class="reason" placeholder="Descreva o ajuste necessario."></textarea></label>
+              </div>
             </article>
             """
         )
@@ -259,37 +282,40 @@ def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{escaped_title}</title>
   <style>
-    :root {{ color-scheme: dark; --bg:#08090b; --panel:#111316; --panel2:#171a1f; --line:#343943; --text:#f5f7fb; --muted:#a8afb9; --gold:#ffc72c; --blue:#14a9d1; --ok:#8fd2bd; }}
+    :root {{ color-scheme: dark; --bg:#08090b; --panel:#111316; --panel2:#171a1f; --line:#343943; --text:#f5f7fb; --muted:#a8afb9; --gold:#ffc72c; --blue:#14a9d1; --ok:#8fd2bd; --bad:#ff6b6b; }}
     * {{ box-sizing:border-box; }}
     body {{ margin:0; background:var(--bg); color:var(--text); font:16px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-    main {{ width:min(1800px, calc(100vw - 32px)); margin:0 auto; padding:28px 0 40px; }}
-    h1 {{ margin:0 0 8px; font-size:clamp(28px,3vw,44px); letter-spacing:0; }}
-    .subtitle {{ margin:0 0 24px; color:var(--muted); font-size:18px; }}
-    .case-card {{ border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:20px; margin:0 0 22px; }}
-    .case-card header {{ display:flex; gap:14px; align-items:flex-start; border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:16px; }}
-    .case-number {{ display:inline-grid; place-items:center; width:44px; height:44px; border-radius:8px; background:var(--gold); color:#101010; font-weight:900; flex:0 0 auto; }}
-    h2 {{ margin:0; font-size:24px; letter-spacing:0; }}
+    main {{ width:min(1880px, calc(100vw - 28px)); margin:0 auto; padding:24px 0 40px; }}
+    h1 {{ margin:0 0 6px; font-size:clamp(28px,3vw,42px); letter-spacing:0; }}
+    .subtitle {{ margin:0 0 20px; color:var(--muted); font-size:17px; }}
+    .case-card {{ border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:18px; margin:0 0 22px; }}
+    .case-card header {{ display:flex; gap:14px; align-items:flex-start; border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:14px; }}
+    .case-number {{ display:inline-grid; place-items:center; width:42px; height:42px; border-radius:8px; background:var(--gold); color:#101010; font-weight:900; flex:0 0 auto; }}
+    h2 {{ margin:0; font-size:22px; letter-spacing:0; }}
     header p {{ margin:4px 0 0; color:var(--muted); }}
-    .compare-grid {{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:18px; align-items:start; }}
-    h3 {{ margin:0 0 10px; color:#aee7ee; font-size:18px; letter-spacing:0; }}
-    .image-frame {{ min-height:220px; display:grid; place-items:center; border:1px solid var(--line); border-radius:8px; background:#f8f8f8; overflow:auto; }}
+    .compare-grid {{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:start; }}
+    h3 {{ margin:0 0 8px; color:#aee7ee; font-size:17px; letter-spacing:0; }}
+    .image-frame {{ min-height:240px; max-height:82vh; display:grid; place-items:start center; border:1px solid var(--line); border-radius:8px; background:#f8f8f8; overflow:auto; padding:8px; }}
     img {{ display:block; max-width:100%; height:auto; }}
     code {{ display:block; margin-top:8px; color:var(--muted); white-space:normal; word-break:break-word; font-size:12px; }}
-    .missing {{ color:#333; padding:28px; text-align:center; font-weight:700; }}
-    .homologacao {{ display:inline-flex; align-items:center; gap:10px; margin:16px 0 10px; color:var(--ok); font-size:20px; font-weight:800; }}
-    .homologacao input {{ width:24px; height:24px; accent-color:var(--blue); }}
-    .reason-label {{ display:block; color:var(--text); font-size:18px; }}
-    textarea {{ display:block; width:100%; min-height:92px; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel2); color:var(--text); padding:14px; font:inherit; resize:vertical; }}
-    .parecer {{ position:sticky; bottom:0; border:1px solid var(--line); border-radius:8px 8px 0 0; background:#0c0e11f2; padding:18px; backdrop-filter:blur(8px); }}
-    #parecer {{ min-height:180px; white-space:pre-wrap; }}
+    .missing {{ color:#333; padding:28px; text-align:center; font-weight:800; place-self:center; }}
+    .audit-controls {{ margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }}
+    .homologacao {{ display:inline-flex; align-items:center; gap:10px; margin:0 0 10px; color:var(--ok); font-size:20px; font-weight:900; }}
+    input[type="checkbox"] {{ width:22px; height:22px; accent-color:var(--blue); vertical-align:middle; }}
+    .issue-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px 14px; margin:6px 0 12px; color:var(--muted); }}
+    .issue-grid label {{ display:flex; align-items:center; gap:8px; min-width:0; }}
+    .reason-label {{ display:block; color:var(--text); font-size:17px; }}
+    textarea {{ display:block; width:100%; min-height:86px; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel2); color:var(--text); padding:12px; font:inherit; resize:vertical; }}
+    .parecer {{ position:sticky; bottom:0; border:1px solid var(--line); border-radius:8px 8px 0 0; background:#0c0e11f2; padding:16px; backdrop-filter:blur(8px); }}
+    #parecer {{ min-height:170px; white-space:pre-wrap; }}
     button {{ margin-top:10px; border:0; border-radius:8px; background:var(--gold); color:#111; padding:12px 18px; font-weight:900; cursor:pointer; }}
-    @media (max-width:900px) {{ .compare-grid {{ grid-template-columns:1fr; }} }}
+    @media (max-width:980px) {{ .compare-grid {{ grid-template-columns:1fr; }} .issue-grid {{ grid-template-columns:1fr; }} }}
   </style>
 </head>
 <body>
   <main>
     <h1>{escaped_title}</h1>
-    <p class="subtitle">Compare o original/PDF bruto com a imagem tratada. Marque homologada ou escreva o motivo do ajuste.</p>
+    <p class="subtitle">Tipo: {html_lib.escape(board_kind)}. Compare lado a lado, marque homologada ou selecione os erros e escreva o motivo.</p>
     {''.join(cards)}
     <section class="parecer">
       <h2>Parecer para enviar no chat</h2>
@@ -305,15 +331,25 @@ def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str
         const id = card.dataset.case;
         const caseTitle = card.dataset.title;
         const approved = card.querySelector('.approved').checked;
+        const selected = Array.from(card.querySelectorAll('.issue:checked')).map(item => item.value);
         const reason = card.querySelector('.reason').value.trim();
-        if (approved) {{ lines.push(`${{id}} - ${{caseTitle}}: HOMOLOGADA`); }}
-        else {{ lines.push(`${{id}} - ${{caseTitle}}: NAO HOMOLOGADA${{reason ? ' - ' + reason : ''}}`); }}
+        if (approved) {{
+          lines.push(`${{id}} - ${{caseTitle}}: HOMOLOGADA`);
+        }} else {{
+          const chunks = [];
+          if (selected.length) chunks.push(selected.join(', '));
+          if (reason) chunks.push(reason);
+          lines.push(`${{id}} - ${{caseTitle}}: NAO HOMOLOGADA${{chunks.length ? ' - ' + chunks.join(' | ') : ''}}`);
+        }}
       }});
       document.getElementById('parecer').value = lines.join('\n');
     }}
     document.addEventListener('input', buildReport);
     document.addEventListener('change', buildReport);
-    document.getElementById('copy').addEventListener('click', async () => {{ buildReport(); await navigator.clipboard.writeText(document.getElementById('parecer').value); }});
+    document.getElementById('copy').addEventListener('click', async () => {{
+      buildReport();
+      await navigator.clipboard.writeText(document.getElementById('parecer').value);
+    }});
     buildReport();
   </script>
 </body>
@@ -322,18 +358,15 @@ def build_audit_board_html(audit_title: str, cases: list[dict[str, Any]]) -> str
 
 @app.post("/v1/audit/create-board", response_model=AuditBoardResponse, dependencies=[Depends(require_proxy_auth)])
 async def create_audit_board(payload: dict[str, Any] = Body(...)) -> AuditBoardResponse:
-    # Import here so the module reflects the current env/default from main at runtime.
-    from main import DROPBOX_OUTPUT_ROOT
-
     audit_title = str(pick(payload, "audit_title", "title", "titulo", default="AUDITORIA VISUAL")).strip()
     output_folder = pick(payload, "output_folder", "folder", "pasta", default=None) or DROPBOX_OUTPUT_ROOT
-    output_name = str(
-        pick(payload, "output_name", "name", "nome", "nome_arquivo", default=clean_filename(audit_title))
-    ).strip()
+    output_name = str(pick(payload, "output_name", "name", "nome", "nome_arquivo", default=clean_filename(audit_title))).strip()
     if not output_name:
         output_name = clean_filename(audit_title)
 
     normalized_cases = normalize_cases(payload)
+    board_kind, expected_count = validate_audit_board_payload(payload, normalized_cases)
+
     linked_cases: list[dict[str, Any]] = []
     for case in normalized_cases:
         treated_path = case.get("treated_path")
@@ -347,14 +380,16 @@ async def create_audit_board(payload: dict[str, Any] = Body(...)) -> AuditBoardR
             }
         )
 
-    html_text = build_audit_board_html(audit_title, linked_cases)
+    html_text = build_audit_board_html(audit_title, board_kind, linked_cases)
     dropbox_path = dropbox_join(str(output_folder), f"{clean_filename(output_name)}.html")
     await dropbox_upload(dropbox_path, html_text.encode("utf-8"))
     link_data = await dropbox_temporary_link(dropbox_path)
     return AuditBoardResponse(
         status="ok",
         audit_title=audit_title,
+        board_kind=board_kind,
         case_count=len(normalized_cases),
+        expected_case_count=expected_count,
         dropbox_path=dropbox_path,
         temporary_link=link_data["link"],
     )
