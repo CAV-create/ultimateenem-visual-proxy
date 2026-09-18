@@ -11,7 +11,7 @@ from typing import Any, Literal
 import fitz
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 DROPBOX_API = "https://api.dropboxapi.com/2"
@@ -43,8 +43,8 @@ _dropbox_access_token_cache = DROPBOX_ACCESS_TOKEN
 
 app = FastAPI(
     title="ultimateENEM Visual Proxy",
-    version="1.1.2",
-    description="Proxy para localizar PDFs no Dropbox, renderizar paginas, recortar recursos visuais e salvar PNG/WebP.",
+    version="1.4.0",
+    description="Proxy para localizar PDFs e imagens no Dropbox, materializar recursos visuais e salvar PNG/WebP.",
 )
 
 
@@ -194,6 +194,21 @@ def render_pdf_page(pdf_bytes: bytes, page_number: int, dpi: int) -> Image.Image
     return ImageOps.exif_transpose(Image.open(io.BytesIO(pixmap.tobytes("png"))).convert("RGB"))
 
 
+def load_raster_image(image_bytes: bytes, source_path: str) -> Image.Image:
+    extension = posixpath.splitext(source_path.lower())[1]
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(
+            status_code=400,
+            detail="source_path deve apontar para JPG, JPEG, PNG ou WebP. Use as rotas PDF para arquivos PDF.",
+        )
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=f"Imagem raster invalida ou ilegivel: {exc}") from exc
+    return ImageOps.exif_transpose(image).convert("RGB")
+
+
 class HealthResponse(BaseModel):
     ok: bool
     service: str
@@ -256,6 +271,24 @@ class CropRequest(BaseModel):
     webp_quality: int = Field(88, ge=40, le=100)
 
 
+class RasterMaterializeRequest(BaseModel):
+    source_path: str = Field(..., description="Caminho completo no Dropbox para JPG, JPEG, PNG ou WebP.")
+    bbox: BBox | None = Field(None, description="Recorte opcional. Ausente preserva o quadro inteiro.")
+    units: Literal["normalized", "pixels"] = Field(
+        "normalized",
+        description="Unidade do bbox opcional: normalized ou pixels.",
+    )
+    pad_px: int = Field(0, ge=0, le=120, description="Sangria controlada aplicada somente quando bbox for informado.")
+    output_folder: str | None = Field(
+        None,
+        description="Pasta Dropbox final. Deve conter /tratadas/, /recortes/ ou /perfeitas/.",
+    )
+    output_basename: str = Field(..., description="Nome base dos arquivos derivados sem extensao.")
+    make_png: bool = True
+    make_webp: bool = True
+    webp_quality: int = Field(88, ge=40, le=100)
+
+
 class UploadedAsset(BaseModel):
     format: Literal["png", "webp"]
     dropbox_path: str
@@ -273,6 +306,16 @@ class VisualOperationResponse(BaseModel):
     page_width: int
     page_height: int
     crop_box_pixels: list[int] = Field(default_factory=list)
+    assets: list[UploadedAsset]
+
+
+class RasterOperationResponse(BaseModel):
+    status: Literal["ok"]
+    source_path: str
+    source_width: int
+    source_height: int
+    crop_box_pixels: list[int]
+    processing_steps: list[str]
     assets: list[UploadedAsset]
 
 
@@ -343,6 +386,18 @@ def resolve_crop_box(image: Image.Image, bbox: BBox, units: str, pad_px: int) ->
     return x1, y1, x2, y2
 
 
+def resolve_treated_output_folder(output_folder: str | None) -> str:
+    folder = output_folder or dropbox_join(DROPBOX_OUTPUT_ROOT, "tratadas")
+    normalized = "/" + folder.strip("/")
+    lowered = normalized.lower()
+    if not any(part in lowered for part in ("/tratadas", "/recortes", "/perfeitas")):
+        raise HTTPException(
+            status_code=400,
+            detail="output_folder deve estar em /tratadas/, /recortes/ ou /perfeitas/ para produzir treated_path valido.",
+        )
+    return normalized
+
+
 @app.post("/v1/pdf/crop", response_model=VisualOperationResponse, dependencies=[Depends(require_proxy_auth)])
 async def crop_pdf_visual(request: CropRequest) -> VisualOperationResponse:
     if not request.make_png and not request.make_webp:
@@ -368,5 +423,56 @@ async def crop_pdf_visual(request: CropRequest) -> VisualOperationResponse:
         page_width=page_image.width,
         page_height=page_image.height,
         crop_box_pixels=list(crop_box),
+        assets=assets,
+    )
+
+
+@app.post(
+    "/v1/image/materialize",
+    response_model=RasterOperationResponse,
+    operation_id="materializar_imagem_tratada",
+    dependencies=[Depends(require_proxy_auth)],
+)
+async def materialize_raster_visual(request: RasterMaterializeRequest) -> RasterOperationResponse:
+    if not request.make_png and not request.make_webp:
+        raise HTTPException(status_code=400, detail="Ative make_png ou make_webp.")
+
+    source = load_raster_image(await dropbox_download(request.source_path), request.source_path)
+    if request.bbox is None:
+        crop_box = (0, 0, source.width, source.height)
+        treated = source.copy()
+        processing_steps = ["exif_orientation", "rgb_normalization", "full_frame_preserved"]
+    else:
+        crop_box = resolve_crop_box(source, request.bbox, request.units, request.pad_px)
+        treated = source.crop(crop_box)
+        processing_steps = ["exif_orientation", "rgb_normalization", "controlled_crop"]
+
+    output_folder = resolve_treated_output_folder(request.output_folder)
+    base_name = clean_filename(request.output_basename)
+    assets: list[UploadedAsset] = []
+    for image_format in (["png"] if request.make_png else []) + (["webp"] if request.make_webp else []):
+        suffix = "_app" if image_format == "webp" else ""
+        data = image_to_bytes(treated, image_format, request.webp_quality)
+        dropbox_path = dropbox_join(output_folder, f"{base_name}{suffix}.{image_format}")
+        await dropbox_upload(dropbox_path, data)
+        link_data = await dropbox_temporary_link(dropbox_path)
+        assets.append(
+            UploadedAsset(
+                format=image_format,
+                dropbox_path=dropbox_path,
+                temporary_link=link_data["link"],
+                bytes=len(data),
+                width=treated.width,
+                height=treated.height,
+            )
+        )
+
+    return RasterOperationResponse(
+        status="ok",
+        source_path=request.source_path,
+        source_width=source.width,
+        source_height=source.height,
+        crop_box_pixels=list(crop_box),
+        processing_steps=processing_steps,
         assets=assets,
     )
