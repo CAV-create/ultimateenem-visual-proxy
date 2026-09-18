@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: ultimateENEM Visual Proxy
-  version: 1.3.0
-  description: Proxy privado para PDFs, recortes e pranchas de auditoria ENEM. Use Chave API no header Authorization; nao use OAuth.
+  version: 1.4.0
+  description: Proxy privado para PDFs, imagens raster, recortes e pranchas de auditoria ENEM. Use Chave API no header Authorization; nao use OAuth.
 servers:
   - url: https://ultimateenem-visual-proxy.onrender.com
 security:
@@ -162,6 +162,72 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/VisualOperationResponse"
+  /v1/image/materialize:
+    post:
+      operationId: materializar_imagem_tratada
+      summary: Materializa JPG, PNG ou WebP do Dropbox como imagem tratada real.
+      description: >
+        Baixa uma imagem raster existente, normaliza orientacao EXIF e RGB, aplica
+        recorte opcional e grava PNG/WebP real em /tratadas/, /recortes/ ou /perfeitas/.
+        Use esta action quando a origem nao estiver em PDF. Ela nao inventa conteudo
+        nem declara tratamento sem produzir o arquivo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [source_path, output_basename]
+              properties:
+                source_path:
+                  type: string
+                  description: Caminho completo no Dropbox para JPG, JPEG, PNG ou WebP.
+                bbox:
+                  type: object
+                  additionalProperties: false
+                  required: [x, y, w, h]
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+                    w:
+                      type: number
+                    h:
+                      type: number
+                units:
+                  type: string
+                  enum: [normalized, pixels]
+                  default: normalized
+                pad_px:
+                  type: integer
+                  default: 0
+                  minimum: 0
+                  maximum: 120
+                output_folder:
+                  type: string
+                  description: Pasta final contendo /tratadas/, /recortes/ ou /perfeitas/.
+                output_basename:
+                  type: string
+                make_png:
+                  type: boolean
+                  default: true
+                make_webp:
+                  type: boolean
+                  default: true
+                webp_quality:
+                  type: integer
+                  default: 88
+                  minimum: 40
+                  maximum: 100
+      responses:
+        "200":
+          description: Imagem tratada real materializada no Dropbox.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RasterOperationResponse"
   /v1/audit/create-board:
     post:
       operationId: criar_prancha_auditoria_visual
@@ -264,6 +330,31 @@ components:
           type: array
           items:
             type: integer
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadedAsset"
+    RasterOperationResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        source_path:
+          type: string
+        source_width:
+          type: integer
+        source_height:
+          type: integer
+        crop_box_pixels:
+          type: array
+          items:
+            type: integer
+        processing_steps:
+          type: array
+          items:
+            type: string
         assets:
           type: array
           items:

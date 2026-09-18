@@ -13,6 +13,11 @@ O GPT externo consegue chamar Actions, mas nao consegue abrir o binario do PDF r
 5. salva PNG e WebP no Dropbox;
 6. devolve links temporarios para auditoria.
 
+Quando a origem ja for JPG, JPEG, PNG ou WebP, a rota `/v1/image/materialize`
+normaliza a orientacao/espaco de cor, aplica recorte opcional e grava um artefato
+real em `/tratadas/`. Assim, a prancha final nunca precisa fabricar `treated_path`
+nem exigir uma conversao intermediaria para PDF.
+
 ## Variaveis de ambiente
 
 ```bash
@@ -93,6 +98,21 @@ Coordenadas normalizadas sao mais praticas para o GPT:
 ```
 
 O retorno traz `temporary_link` e `dropbox_path` para cada imagem gerada.
+
+## Materializar uma origem JPG/PNG
+
+```json
+{
+  "source_path": "/ENEM 2026 App/originais/questao.jpg",
+  "output_folder": "/ENEM 2026 App/ULTIMATE_ENEM_DR_IMAGEM_PIPELINE/tratadas",
+  "output_basename": "questao_tratada",
+  "make_png": true,
+  "make_webp": true
+}
+```
+
+`bbox` e opcional. Sem ele, o quadro inteiro e preservado; com ele, o recorte usa
+as mesmas unidades `normalized` ou `pixels` da rota de PDF.
 
 ## Regra do Dr. Imagem
 

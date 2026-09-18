@@ -96,10 +96,13 @@ Quando receber um caso, ele deve:
 
 1. usar `testar_oauth_dropbox_proxy` antes do primeiro lote do dia;
 2. usar `buscar_pdf_dropbox` se nao tiver o caminho completo;
-3. usar `renderizar_pagina_pdf` para ver a pagina inteira quando precisar conferir;
-4. usar `recortar_recurso_visual_pdf` para gerar PNG/WebP;
-5. devolver os links temporarios para o Prof. CAV auditar;
-6. nunca afirmar que salvou arquivo sem o retorno real do proxy.
+3. usar `renderizar_pagina_pdf` para ver a pagina inteira quando a origem for PDF;
+4. usar `recortar_recurso_visual_pdf` para gerar PNG/WebP a partir de PDF;
+5. quando a origem ja for JPG, JPEG, PNG ou WebP, usar `materializar_imagem_tratada` para produzir arquivo real em `/tratadas/`, com recorte opcional;
+6. devolver os links temporarios para o Prof. CAV auditar;
+7. nunca afirmar que salvou arquivo sem o retorno real do proxy.
+
+Uma imagem raster valida nao deve ser recusada apenas por nao existir em PDF. O `dropbox_path` retornado por `materializar_imagem_tratada` e o unico `treated_path` valido; nunca fabrique ou antecipe esse caminho.
 
 ## Exemplo de comando para o Dr. Imagem
 
