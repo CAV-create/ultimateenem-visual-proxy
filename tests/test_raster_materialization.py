@@ -57,10 +57,11 @@ class RasterMaterializationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 400)
 
     def test_output_folder_must_be_a_final_image_folder(self) -> None:
-        with self.assertRaises(HTTPException) as raised:
-            main.resolve_treated_output_folder("/ENEM 2026 App/brutos")
+        for invalid_folder in ("/ENEM 2026 App/brutos", "/ENEM 2026 App/tratadas_fake"):
+            with self.assertRaises(HTTPException) as raised:
+                main.resolve_treated_output_folder(invalid_folder)
 
-        self.assertEqual(raised.exception.status_code, 400)
+            self.assertEqual(raised.exception.status_code, 400)
 
     def test_static_action_schema_exposes_raster_materialization(self) -> None:
         schema_path = Path(__file__).resolve().parents[1] / "openapi_gpt_action_visual_proxy.yaml"

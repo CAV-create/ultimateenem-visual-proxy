@@ -389,8 +389,8 @@ def resolve_crop_box(image: Image.Image, bbox: BBox, units: str, pad_px: int) ->
 def resolve_treated_output_folder(output_folder: str | None) -> str:
     folder = output_folder or dropbox_join(DROPBOX_OUTPUT_ROOT, "tratadas")
     normalized = "/" + folder.strip("/")
-    lowered = normalized.lower()
-    if not any(part in lowered for part in ("/tratadas", "/recortes", "/perfeitas")):
+    path_components = {part.lower() for part in normalized.split("/") if part}
+    if path_components.isdisjoint({"tratadas", "recortes", "perfeitas"}):
         raise HTTPException(
             status_code=400,
             detail="output_folder deve estar em /tratadas/, /recortes/ ou /perfeitas/ para produzir treated_path valido.",
